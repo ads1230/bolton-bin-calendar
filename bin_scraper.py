@@ -112,7 +112,6 @@ def get_bin_dates():
         # 6. Scrape Dates
         print("Reading collection dates...")
         
-        # Wait for actual text indicating success
         try:
             wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), "collection"))
         except:
@@ -120,7 +119,7 @@ def get_bin_dates():
             try:
                 wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), "Bin"))
             except:
-                print("Warning: Content load might have timed out. Attempting read anyway.")
+                pass
 
         time.sleep(3) 
 
@@ -128,8 +127,6 @@ def get_bin_dates():
         body_element = driver.find_element(By.TAG_NAME, "body")
         text_content = body_element.text.split('\n')
         
-        print("Page text snippet:", text_content[:5])
-
         date_pattern = re.compile(r"(\w+ \d{1,2} \w+ \d{4})")
         current_bin = "Unknown Bin"
         
@@ -153,7 +150,6 @@ def get_bin_dates():
                     print(f"Skipping date parse error: {e}")
         
         if not bins:
-            print("No bins found! Saving debug screenshot...")
             driver.save_screenshot("error_screenshot.png")
 
         return bins
@@ -168,28 +164,43 @@ def get_bin_dates():
 
 def create_ics(bin_data):
     c = Calendar()
+    
+    # 1. Group bins by Date
+    grouped_events = {}
     for bin_name, bin_date in bin_data:
-        # 1. Clean up the name
-        # Remove volumes like "140L" or "240L"
-        clean_name = re.sub(r'\d+L\s*', '', bin_name, flags=re.IGNORECASE).strip()
+        # Use the date (YYYY-MM-DD) as the key
+        date_key = bin_date.date()
+        if date_key not in grouped_events:
+            grouped_events[date_key] = []
+        grouped_events[date_key].append(bin_name)
+    
+    # 2. Process each group
+    for collection_date, raw_names in grouped_events.items():
+        # Clean and extract colors for all bins on this day
+        colors = []
+        for name in raw_names:
+            clean = re.sub(r'\d+L\s*', '', name, flags=re.IGNORECASE).strip()
+            match = re.search(r'(Grey|Beige|Burgundy|Green|Food)', clean, re.IGNORECASE)
+            if match:
+                colors.append(match.group(1).title())
+            else:
+                # Fallback: remove "bin" and "collection" keywords if no color found
+                fallback = clean.replace('bin', '').replace('collection', '').strip().title()
+                colors.append(fallback)
         
-        # Extract specific colors to format as "Grey bin collection"
-        match = re.search(r'(Grey|Beige|Burgundy|Green|Food)', clean_name, re.IGNORECASE)
-        if match:
-            color = match.group(1).title()
-            final_name = f"{color} bin collection"
-        else:
-            # Fallback if no color is found, clean up formatting
-            final_name = f"{clean_name} collection"
-
+        # Remove duplicates
+        colors = sorted(list(set(colors)))
+        
+        # Format title: "Beige, Burgundy bin collection"
+        title = f"{', '.join(colors)} bin collection"
+            
         e = Event()
-        e.name = final_name
-        e.begin = bin_date.replace(hour=7, minute=0, second=0)
+        e.name = title
+        e.begin = datetime.combine(collection_date, datetime.min.time()).replace(hour=7)
         e.duration = {"hours": 1}
-        # Description matches the title per your request logic
-        e.description = final_name 
+        e.description = title
         
-        # 2. Add Reminder (1 day before)
+        # Add Reminder (1 day before)
         alarm = DisplayAlarm(trigger=timedelta(days=-1))
         e.alarms.append(alarm)
         
