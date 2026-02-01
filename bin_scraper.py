@@ -16,10 +16,9 @@ POSTCODE = os.environ.get("BIN_POSTCODE")
 HOUSE_NUMBER = os.environ.get("BIN_HOUSE_NUMBER")
 
 if not POSTCODE or not HOUSE_NUMBER:
-    # Fallback for local testing if secrets are missing
     POSTCODE = "BL1 5DB"
     HOUSE_NUMBER = "36"
-    print("Warning: Using default test credentials (Secrets not found).")
+    print("Warning: Using default test credentials.")
 
 URL = "https://bolton.portal.uk.empro.verintcloudservices.com/site/empro-bolton/request/es_bin_collection_dates"
 
@@ -34,7 +33,7 @@ def get_bin_dates():
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
     
-    # Stealth settings to bypass basic bot detection
+    # Stealth settings
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -47,69 +46,84 @@ def get_bin_dates():
         wait = WebDriverWait(driver, 30)
         print(f"Page loaded: {driver.title}")
 
-        # 0. Handle Cookie Banner (If present)
+        # 0. Handle Cookie Banner
         try:
             cookie_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Accept') or contains(text(), 'Allow') or contains(@class, 'cookie')]")
             cookie_btn.click()
-            print("Cookie banner clicked.")
             time.sleep(1)
         except:
             pass 
 
         # 1. Handle "Start now" Landing Page
         try:
-            print("Looking for 'Start now' button...")
+            # Check if we are on the landing page by looking for the Start button
             start_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Start now')]")))
             start_btn.click()
             print("Clicked 'Start now'.")
             time.sleep(2) 
-        except Exception as e:
-            print(f"Start button logic skipped: {e}")
-
-        # 2. Enter Postcode
-        print("Entering postcode...")
-        # FIX 1: Use a broader selector. Just find the input box.
-        try:
-            postcode_input = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='text']")))
         except:
-            # Fallback if type isn't explicitly text
-            postcode_input = wait.until(EC.element_to_be_clickable((By.TAG_NAME, "input")))
+            print("Start button not found (might already be on form).")
 
-        postcode_input.clear()
-        postcode_input.send_keys(POSTCODE)
+        # 2. Enter Postcode (SMART FIND STRATEGY)
+        print("Entering postcode...")
         
-        # FIX 2: Look for 'Find address' (lowercase 'a') OR 'Find Address'
+        postcode_input = None
+        
+        # Strategy A: Find the label "Postcode" and get the input following it
+        try:
+            print("Attempting to find input by Label...")
+            postcode_input = wait.until(EC.element_to_be_clickable((By.XPATH, "//label[contains(., 'Postcode')]/following::input[1]")))
+        except:
+            pass
+            
+        # Strategy B: If A fails, find the first visible input box on the screen
+        if not postcode_input:
+            print("Label strategy failed. Looking for any visible input...")
+            inputs = driver.find_elements(By.TAG_NAME, "input")
+            for inp in inputs:
+                # Check if it's a text box and visible
+                if inp.is_displayed() and inp.get_attribute("type") in ["text", "search", "email", "tel", ""]:
+                    postcode_input = inp
+                    break
+        
+        if postcode_input:
+            postcode_input.clear()
+            postcode_input.send_keys(POSTCODE)
+            print("Postcode entered.")
+        else:
+            raise Exception("Could not find the Postcode input box!")
+
+        # 3. Click Find Address
+        # We use a broad search for the button to catch 'Find address' or 'Find Address'
         print("Clicking 'Find address'...")
-        find_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Find address') or contains(text(), 'Find Address')]")
+        find_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Find')]")))
         find_btn.click()
         
         time.sleep(4) # Wait for address dropdown
 
-        # 3. Select Address
+        # 4. Select Address
         print("Selecting address...")
-        # Wait for the dropdown (select element) to appear
         address_select = wait.until(EC.presence_of_element_located((By.TAG_NAME, "select")))
         select = Select(address_select)
         
         found_address = False
-        # Loop through options to find the house number
         for option in select.options:
             if HOUSE_NUMBER in option.text:
                 select.select_by_visible_text(option.text)
                 found_address = True
-                print(f"Selected address: {option.text}")
+                print(f"Selected: {option.text}")
                 break
         
         if not found_address:
             print(f"Warning: Could not match house number '{HOUSE_NUMBER}'. Selecting first option.")
             select.select_by_index(1) 
 
-        # Click Next after selecting address
+        # Click Next
         print("Clicking Next...")
         next_btn = driver.find_element(By.XPATH, "//button[contains(@class, 'next') or contains(text(), 'Next')]")
         next_btn.click()
 
-        # 4. Scrape Dates
+        # 5. Scrape Dates
         print("Reading collection dates...")
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "field-content")))
         
