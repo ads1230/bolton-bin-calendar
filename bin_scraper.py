@@ -10,6 +10,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from ics import Calendar, Event
+from ics.alarm import DisplayAlarm
 
 # --- CONFIGURATION (SECURE) ---
 POSTCODE = os.environ.get("BIN_POSTCODE")
@@ -108,11 +109,10 @@ def get_bin_dates():
         continue_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Continue') or contains(text(), 'Next')]")))
         continue_btn.click()
 
-        # 6. Scrape Dates (IMPROVED WAIT)
+        # 6. Scrape Dates
         print("Reading collection dates...")
         
-        # KEY FIX: Don't just wait for 'body'. Wait for actual text indicating success.
-        # This prevents reading the page while it's still blank/loading.
+        # Wait for actual text indicating success
         try:
             wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), "collection"))
         except:
@@ -122,7 +122,7 @@ def get_bin_dates():
             except:
                 print("Warning: Content load might have timed out. Attempting read anyway.")
 
-        time.sleep(3) # Extra buffer for images to render
+        time.sleep(3) 
 
         bins = []
         body_element = driver.find_element(By.TAG_NAME, "body")
@@ -137,7 +137,6 @@ def get_bin_dates():
             line = line.strip()
             if not line: continue
             
-            # Case insensitive check
             if "bin" in line.lower() or "container" in line.lower():
                 current_bin = line.replace(':', '').strip()
             
@@ -153,7 +152,6 @@ def get_bin_dates():
                 except Exception as e:
                     print(f"Skipping date parse error: {e}")
         
-        # Force a screenshot if we found nothing, so we can debug "success but empty" states
         if not bins:
             print("No bins found! Saving debug screenshot...")
             driver.save_screenshot("error_screenshot.png")
@@ -171,11 +169,30 @@ def get_bin_dates():
 def create_ics(bin_data):
     c = Calendar()
     for bin_name, bin_date in bin_data:
+        # 1. Clean up the name
+        # Remove volumes like "140L" or "240L"
+        clean_name = re.sub(r'\d+L\s*', '', bin_name, flags=re.IGNORECASE).strip()
+        
+        # Extract specific colors to format as "Grey bin collection"
+        match = re.search(r'(Grey|Beige|Burgundy|Green|Food)', clean_name, re.IGNORECASE)
+        if match:
+            color = match.group(1).title()
+            final_name = f"{color} bin collection"
+        else:
+            # Fallback if no color is found, clean up formatting
+            final_name = f"{clean_name} collection"
+
         e = Event()
-        e.name = f"♻️ {bin_name}"
+        e.name = final_name
         e.begin = bin_date.replace(hour=7, minute=0, second=0)
         e.duration = {"hours": 1}
-        e.description = f"Put out the {bin_name} today."
+        # Description matches the title per your request logic
+        e.description = final_name 
+        
+        # 2. Add Reminder (1 day before)
+        alarm = DisplayAlarm(trigger=timedelta(days=-1))
+        e.alarms.append(alarm)
+        
         c.events.add(e)
     
     filename = "bolton_bins.ics"
