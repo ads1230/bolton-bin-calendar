@@ -26,6 +26,7 @@ def get_bin_dates():
     print(f"Starting scraper for {POSTCODE}...")
 
     chrome_options = Options()
+    # Cloud stability settings
     chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -107,20 +108,26 @@ def get_bin_dates():
         continue_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Continue') or contains(text(), 'Next')]")))
         continue_btn.click()
 
-        # 6. Scrape Dates (FINAL FIX)
+        # 6. Scrape Dates (IMPROVED WAIT)
         print("Reading collection dates...")
         
-        # Wait for the results to load
-        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        time.sleep(2) # Give it a moment to render text
+        # KEY FIX: Don't just wait for 'body'. Wait for actual text indicating success.
+        # This prevents reading the page while it's still blank/loading.
+        try:
+            wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), "collection"))
+        except:
+            print("Warning: 'collection' text not found. Waiting for 'Bin'...")
+            try:
+                wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), "Bin"))
+            except:
+                print("Warning: Content load might have timed out. Attempting read anyway.")
+
+        time.sleep(3) # Extra buffer for images to render
 
         bins = []
-        
-        # FIX: Read the entire BODY text, not just the form (since the form might disappear)
         body_element = driver.find_element(By.TAG_NAME, "body")
         text_content = body_element.text.split('\n')
         
-        # Print first few lines to debug log just in case
         print("Page text snippet:", text_content[:5])
 
         date_pattern = re.compile(r"(\w+ \d{1,2} \w+ \d{4})")
@@ -130,9 +137,8 @@ def get_bin_dates():
             line = line.strip()
             if not line: continue
             
-            # FIX: Case insensitive check for "bin" (your screenshot showed "rubbish bin" lowercase)
+            # Case insensitive check
             if "bin" in line.lower() or "container" in line.lower():
-                # Clean up the line (remove colon if present)
                 current_bin = line.replace(':', '').strip()
             
             match = date_pattern.search(line)
@@ -146,6 +152,11 @@ def get_bin_dates():
                         print(f"Found: {current_bin} on {date_str}")
                 except Exception as e:
                     print(f"Skipping date parse error: {e}")
+        
+        # Force a screenshot if we found nothing, so we can debug "success but empty" states
+        if not bins:
+            print("No bins found! Saving debug screenshot...")
+            driver.save_screenshot("error_screenshot.png")
 
         return bins
 
