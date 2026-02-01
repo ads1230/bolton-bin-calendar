@@ -56,39 +56,48 @@ def get_bin_dates():
         except:
             pass 
 
-        # 1. Handle "Start now" Landing Page (Specific fix for your screenshot)
+        # 1. Handle "Start now" Landing Page
         try:
             print("Looking for 'Start now' button...")
-            # Search for button or link with "Start now" text
             start_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Start now')]")))
             start_btn.click()
             print("Clicked 'Start now'.")
             time.sleep(2) 
         except Exception as e:
-            print(f"Start button logic skipped (maybe not on landing page?): {e}")
+            print(f"Start button logic skipped: {e}")
 
         # 2. Enter Postcode
         print("Entering postcode...")
-        postcode_input = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[contains(@aria-label, 'Postcode') or contains(@name, 'Postcode')]")))
+        # FIX 1: Use a broader selector. Just find the input box.
+        try:
+            postcode_input = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='text']")))
+        except:
+            # Fallback if type isn't explicitly text
+            postcode_input = wait.until(EC.element_to_be_clickable((By.TAG_NAME, "input")))
+
         postcode_input.clear()
         postcode_input.send_keys(POSTCODE)
         
-        # Click Find Address
-        find_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Find Address') or contains(@class, 'next')]")
+        # FIX 2: Look for 'Find address' (lowercase 'a') OR 'Find Address'
+        print("Clicking 'Find address'...")
+        find_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Find address') or contains(text(), 'Find Address')]")
         find_btn.click()
         
         time.sleep(4) # Wait for address dropdown
 
         # 3. Select Address
         print("Selecting address...")
+        # Wait for the dropdown (select element) to appear
         address_select = wait.until(EC.presence_of_element_located((By.TAG_NAME, "select")))
         select = Select(address_select)
         
         found_address = False
+        # Loop through options to find the house number
         for option in select.options:
             if HOUSE_NUMBER in option.text:
                 select.select_by_visible_text(option.text)
                 found_address = True
+                print(f"Selected address: {option.text}")
                 break
         
         if not found_address:
@@ -96,6 +105,7 @@ def get_bin_dates():
             select.select_by_index(1) 
 
         # Click Next after selecting address
+        print("Clicking Next...")
         next_btn = driver.find_element(By.XPATH, "//button[contains(@class, 'next') or contains(text(), 'Next')]")
         next_btn.click()
 
@@ -129,7 +139,6 @@ def get_bin_dates():
     except Exception as e:
         print(f"An error occurred. Page Title: {driver.title}")
         print(f"Error details: {str(e)}")
-        # Save screenshot for debugging
         driver.save_screenshot("error_screenshot.png")
         return []
     finally:
