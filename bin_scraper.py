@@ -60,14 +60,12 @@ def get_bin_dates():
         except:
             print("Start button not found (might be on form).")
 
-        # 2. Enter Postcode (Smart Find)
+        # 2. Enter Postcode
         print("Entering postcode...")
         postcode_input = None
         try:
-            # Try finding by label first
             postcode_input = wait.until(EC.element_to_be_clickable((By.XPATH, "//label[contains(., 'Postcode')]/following::input[1]")))
         except:
-            # Fallback to any visible text input
             inputs = driver.find_elements(By.TAG_NAME, "input")
             for inp in inputs:
                 if inp.is_displayed() and inp.get_attribute("type") in ["text", "search", "email", "tel", ""]:
@@ -102,28 +100,29 @@ def get_bin_dates():
             if not found_address:
                 select.select_by_index(1)
         except:
-            print("Could not select address from dropdown (maybe it auto-selected?). Continuing...")
+            print("Could not select address (maybe auto-selected?).")
 
-        # 5. Click Continue (FIXED: Was failing here looking for 'Next')
+        # 5. Click Continue
         print("Clicking Continue...")
-        # Look for 'Continue' OR 'Next'
         continue_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Continue') or contains(text(), 'Next')]")))
         continue_btn.click()
 
-        # 6. Scrape Dates
+        # 6. Scrape Dates (FINAL FIX)
         print("Reading collection dates...")
-        # Wait for either 'field-content' OR text that looks like a bin collection
-        try:
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "field-content")))
-        except:
-            # Fallback: wait for the word "Bin" to appear in body
-            wait.until(EC.text_to_be_present_in_element((By.TAG_NAME, "body"), "Bin"))
         
+        # Wait for the results to load
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        time.sleep(2) # Give it a moment to render text
+
         bins = []
-        # Grab all text from the form to be safe
-        content_area = driver.find_element(By.TAG_NAME, "form")
-        text_content = content_area.text.split('\n')
         
+        # FIX: Read the entire BODY text, not just the form (since the form might disappear)
+        body_element = driver.find_element(By.TAG_NAME, "body")
+        text_content = body_element.text.split('\n')
+        
+        # Print first few lines to debug log just in case
+        print("Page text snippet:", text_content[:5])
+
         date_pattern = re.compile(r"(\w+ \d{1,2} \w+ \d{4})")
         current_bin = "Unknown Bin"
         
@@ -131,16 +130,17 @@ def get_bin_dates():
             line = line.strip()
             if not line: continue
             
-            # Heuristic: If line contains 'Bin' or 'Container', it's a label
-            if "Bin" in line or "Container" in line:
-                current_bin = line
+            # FIX: Case insensitive check for "bin" (your screenshot showed "rubbish bin" lowercase)
+            if "bin" in line.lower() or "container" in line.lower():
+                # Clean up the line (remove colon if present)
+                current_bin = line.replace(':', '').strip()
             
             match = date_pattern.search(line)
             if match:
                 date_str = match.group(1)
                 try:
                     date_obj = datetime.strptime(date_str, "%A %d %B %Y")
-                    # Only add if we haven't seen this exact combo (deduplication)
+                    # Deduplicate
                     if not any(b[0] == current_bin and b[1] == date_obj for b in bins):
                         bins.append((current_bin, date_obj))
                         print(f"Found: {current_bin} on {date_str}")
