@@ -12,37 +12,53 @@ from selenium.webdriver.support.ui import Select
 from ics import Calendar, Event
 
 # --- CONFIGURATION (SECURE) ---
-# This looks for the secrets you set in GitHub Settings
 POSTCODE = os.environ.get("BIN_POSTCODE")
 HOUSE_NUMBER = os.environ.get("BIN_HOUSE_NUMBER")
 
-# Fail safely if secrets aren't set
 if not POSTCODE or not HOUSE_NUMBER:
-    print("Error: BIN_POSTCODE or BIN_HOUSE_NUMBER not found. Check your GitHub Secrets.")
-    sys.exit(1)
+    # Fallback for local testing if secrets are missing
+    POSTCODE = "BL1 5DB"
+    HOUSE_NUMBER = "36"
+    print("Warning: Using default test credentials (Secrets not found).")
 
 URL = "https://bolton.portal.uk.empro.verintcloudservices.com/site/empro-bolton/request/es_bin_collection_dates"
 
 def get_bin_dates():
-    print(f"Starting scraper for {POSTCODE} (House {HOUSE_NUMBER})...")
+    print(f"Starting scraper for {POSTCODE}...")
 
     chrome_options = Options()
-    # Stability settings for Cloud/Headless environments
     chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
-    # Use a standard user agent to avoid detection
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    # --- STEALTH MODE ---
+    # This disables the "Chrome is being controlled by automated software" flag
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     
     driver = webdriver.Chrome(options=chrome_options)
     
     try:
         driver.get(URL)
-        wait = WebDriverWait(driver, 30) # Increased timeout for cloud runners
+        wait = WebDriverWait(driver, 30)
 
-        # 1. Handle Landing Page
+        # Print title to see if we are blocked
+        print(f"Page loaded: {driver.title}")
+
+        # 0. Handle Cookie Banner (Crucial for Cloud Runners)
+        try:
+            # Look for common cookie buttons
+            cookie_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Accept') or contains(text(), 'Allow') or contains(@class, 'cookie')]")
+            cookie_btn.click()
+            print("Cookie banner clicked.")
+            time.sleep(1)
+        except:
+            pass # No banner found
+
+        # 1. Handle "Next" or Landing Page Button
         try:
             start_btn = driver.find_element(By.CSS_SELECTOR, "button.next")
             start_btn.click()
@@ -56,10 +72,11 @@ def get_bin_dates():
         postcode_input.clear()
         postcode_input.send_keys(POSTCODE)
         
+        # Click Find
         find_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Find Address') or contains(@class, 'next')]")
         find_btn.click()
         
-        time.sleep(3) # Wait for address list
+        time.sleep(4) # Increased wait for cloud slowness
 
         # 3. Select Address
         print("Selecting address...")
@@ -85,21 +102,16 @@ def get_bin_dates():
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "field-content")))
         
         bins = []
-        # Grab text from the form area where results are shown
         content_area = driver.find_element(By.CSS_SELECTOR, "form")
         text_content = content_area.text.split('\n')
         
-        # Regex for dates like "Tuesday 14 October 2025"
         date_pattern = re.compile(r"(\w+ \d{1,2} \w+ \d{4})")
-        
         current_bin = "Unknown Bin"
         
         for line in text_content:
-            # Identify the bin type
             if "Bin" in line or "Container" in line:
                 current_bin = line.strip()
             
-            # Identify the date
             match = date_pattern.search(line)
             if match:
                 date_str = match.group(1)
@@ -113,7 +125,11 @@ def get_bin_dates():
         return bins
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An error occurred. Page Title: {driver.title}")
+        print(f"Error details: {str(e)}")
+        # Save screenshot for debugging in GitHub Artifacts
+        driver.save_screenshot("error_screenshot.png")
+        print("Screenshot saved to error_screenshot.png")
         return []
     finally:
         driver.quit()
@@ -139,4 +155,4 @@ if __name__ == "__main__":
         create_ics(data)
     else:
         print("No dates found.")
-        sys.exit(1) # Exit with error so GitHub notifies you of failure
+        sys.exit(1)
