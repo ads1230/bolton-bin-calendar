@@ -27,13 +27,14 @@ def get_bin_dates():
     print(f"Starting scraper for {POSTCODE}...")
 
     chrome_options = Options()
+    # Cloud stability settings
     chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
-    # --- STEALTH MODE ---
-    # This disables the "Chrome is being controlled by automated software" flag
+    
+    # Stealth settings to bypass basic bot detection
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -44,27 +45,27 @@ def get_bin_dates():
     try:
         driver.get(URL)
         wait = WebDriverWait(driver, 30)
-
-        # Print title to see if we are blocked
         print(f"Page loaded: {driver.title}")
 
-        # 0. Handle Cookie Banner (Crucial for Cloud Runners)
+        # 0. Handle Cookie Banner (If present)
         try:
-            # Look for common cookie buttons
             cookie_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Accept') or contains(text(), 'Allow') or contains(@class, 'cookie')]")
             cookie_btn.click()
             print("Cookie banner clicked.")
             time.sleep(1)
         except:
-            pass # No banner found
-
-        # 1. Handle "Next" or Landing Page Button
-        try:
-            start_btn = driver.find_element(By.CSS_SELECTOR, "button.next")
-            start_btn.click()
-            time.sleep(1)
-        except:
             pass 
+
+        # 1. Handle "Start now" Landing Page (Specific fix for your screenshot)
+        try:
+            print("Looking for 'Start now' button...")
+            # Search for button or link with "Start now" text
+            start_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Start now')]")))
+            start_btn.click()
+            print("Clicked 'Start now'.")
+            time.sleep(2) 
+        except Exception as e:
+            print(f"Start button logic skipped (maybe not on landing page?): {e}")
 
         # 2. Enter Postcode
         print("Entering postcode...")
@@ -72,11 +73,11 @@ def get_bin_dates():
         postcode_input.clear()
         postcode_input.send_keys(POSTCODE)
         
-        # Click Find
+        # Click Find Address
         find_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Find Address') or contains(@class, 'next')]")
         find_btn.click()
         
-        time.sleep(4) # Increased wait for cloud slowness
+        time.sleep(4) # Wait for address dropdown
 
         # 3. Select Address
         print("Selecting address...")
@@ -94,6 +95,7 @@ def get_bin_dates():
             print(f"Warning: Could not match house number '{HOUSE_NUMBER}'. Selecting first option.")
             select.select_by_index(1) 
 
+        # Click Next after selecting address
         next_btn = driver.find_element(By.XPATH, "//button[contains(@class, 'next') or contains(text(), 'Next')]")
         next_btn.click()
 
@@ -127,9 +129,8 @@ def get_bin_dates():
     except Exception as e:
         print(f"An error occurred. Page Title: {driver.title}")
         print(f"Error details: {str(e)}")
-        # Save screenshot for debugging in GitHub Artifacts
+        # Save screenshot for debugging
         driver.save_screenshot("error_screenshot.png")
-        print("Screenshot saved to error_screenshot.png")
         return []
     finally:
         driver.quit()
