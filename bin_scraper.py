@@ -28,9 +28,6 @@ def get_bin_dates():
 
     chrome_options = Options()
     
-    # --- TIMEOUT FIX: Don't wait for background trackers to finish loading ---
-    chrome_options.page_load_strategy = 'eager' 
-    
     # Cloud stability & stealth settings
     chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
@@ -38,29 +35,42 @@ def get_bin_dates():
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--ignore-certificate-errors")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
-    # Updated User Agent to match newer Chrome versions
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
     
     driver = webdriver.Chrome(options=chrome_options)
     
-    # --- DEEP STEALTH FIX: Hide the 'webdriver' flag from the site's firewall ---
+    # Hide webdriver flag
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
         "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
     })
     
-    # Fail fast on load instead of hanging for 120 seconds
-    driver.set_page_load_timeout(30)
+    # Give the page 60 seconds to load normally (prevents the 120s fatal hang)
+    driver.set_page_load_timeout(60)
     
     try:
         try:
             driver.get(URL)
         except Exception as e:
-            print(f"Note: Initial page load timed out (likely a blocked tracker). Proceeding anyway... {e}")
+            print(f"Note: Page load took longer than 60s. Forcing continuation... {e}")
 
-        wait = WebDriverWait(driver, 30)
+        # Wait object for 45 seconds (giving the Javascript SPA time to render)
+        wait = WebDriverWait(driver, 45)
         print(f"Page loaded: {driver.title}")
+
+        # --- BLANK SCREEN RECOVERY FIX ---
+        print("Waiting for Javascript form to render...")
+        try:
+            # Check if either 'Start now' or 'Postcode' appears on the screen
+            wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Start now') or contains(text(), 'Postcode')]")))
+        except:
+            print("Page seems stuck on a blank screen. Attempting to refresh...")
+            driver.refresh()
+            time.sleep(5)
+            # Try waiting one more time after refresh
+            wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Start now') or contains(text(), 'Postcode')]")))
 
         # 0. Cookie Banner
         try:
@@ -76,9 +86,9 @@ def get_bin_dates():
             start_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Start now')]")))
             start_btn.click()
             print("Clicked 'Start now'.")
-            time.sleep(2) 
+            time.sleep(3) 
         except:
-            print("Start button not found (might be on form).")
+            print("Start button not found (might already be on the form).")
 
         # 2. Enter Postcode
         print("Entering postcode...")
